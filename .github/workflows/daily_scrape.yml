@@ -1,1 +1,60 @@
 
+name: Daily YouTube Comment Scraping
+on:
+  schedule:
+    # 毎日日本時間 9:00 (UTC 0:00) に実行
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # 手動実行も可能にする
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Git Commit & Push に必要
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run scraper
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          VIDEO_ID: ${{ secrets.VIDEO_ID }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          CATEGORY_ID: ${{ secrets.CATEGORY_ID }}
+          SEARCH_KEYWORD: ${{ secrets.SEARCH_KEYWORD || '副業' }}
+          MAX_VIDEOS: ${{ secrets.MAX_VIDEOS || '20' }}
+          MAX_RESULTS: ${{ secrets.MAX_RESULTS || '100' }}
+          MIN_COMMENT_COUNT: ${{ secrets.MIN_COMMENT_COUNT || '10' }}
+          DAYS_OLD_MAX: ${{ secrets.DAYS_OLD_MAX || '7' }}
+        run: |
+          python main.py
+      
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if [ -n "$(git status --porcelain data/events.json)" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add data/events.json
+          git commit -m "chore: Update event data from YouTube comments [skip ci]"
+          git push
